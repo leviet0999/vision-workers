@@ -11,6 +11,7 @@ from loguru import logger
 # from PIL import Image
 import os
 import io
+import requests
 # from PIL import UnidentifiedImageError
 from typing import Optional
 from app.constants import BASE_URL
@@ -306,9 +307,23 @@ async def get_chat_data_validator_response(
     async for line in response.aiter_lines():
         line_formatted = line.split("data: ")[1].split("\n\n")[0]
         response_json = json.loads(line_formatted)
-        # return models.ValidatorCheckingResponse(**response_json)
-        return response_json
+        return models.ValidatorCheckingResponse(**response_json)
 
+async def get_chat_data_response(
+    endpoint: str, data: Dict[str, Any]
+) -> models.ValidatorCheckingResponse:
+    """This method is fine as we always have max token is 1"""
+    response = await query_endpoint_for_iterator(endpoint, data)
+    list_tokens = []
+    async for line in response.aiter_lines():
+        try:
+            line_formatted = line.split("data: ")[1].split("\n\n")[0]
+            response_json = json.loads(line_formatted)
+            list_tokens.append(response_json)
+        except:
+            continue
+    return list_tokens
+        
 
 async def calculate_distance_for_token(
     task_config: models.TaskConfig,
