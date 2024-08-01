@@ -2,11 +2,12 @@ import sys
 sys.path.append("../../") # go to parent dir
 
 import requests
-from app.checking.checking_functions import get_chat_data_validator_response, check_text_result, get_chat_data_response
+from app.checking.checking_functions import get_chat_data_validator_response, check_text_result, get_chat_data_response, check_text_result
 import json
 import httpx
 from pydantic import BaseModel
 from typing import Dict, Union, Optional, Any, List
+import glob
 
 class QueryResult(BaseModel):
     formatted_response: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]
