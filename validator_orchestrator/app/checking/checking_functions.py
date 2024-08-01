@@ -1,3 +1,5 @@
+import sys
+sys.path.append("../../") # go to parent dir
 from app import models
 from typing import Dict, Any, List, Union
 import httpx
@@ -15,7 +17,8 @@ import requests
 # from PIL import UnidentifiedImageError
 from typing import Optional
 from app.constants import BASE_URL
-
+import glob
+from asgiref.sync import async_to_sync
 
 # images_are_same_classifier = xgb.XGBClassifier()
 # images_are_same_classifier.load_model("image_similarity_xgb_model.json")
@@ -220,7 +223,7 @@ from app.constants import BASE_URL
 ########### TEXT ###########
 
 async def check_text_result(
-    result: models.QueryResult, synapse: Dict[str, Any], task_config: models.TaskConfig
+    result: models.QueryResult, synapse: Dict[str, Any], endpoint: str
 ) -> Union[float, None]:
     formatted_response = (
         json.loads(result.formatted_response)
@@ -267,7 +270,7 @@ async def check_text_result(
         )
         
         distance = await calculate_distance_for_token(
-            task_config, llm_request, miner_chat_responses, index
+            endpoint, llm_request, miner_chat_responses, index
         )
         checks += 1
         total_distance += distance
@@ -326,13 +329,13 @@ async def get_chat_data_response(
         
 
 async def calculate_distance_for_token(
-    task_config: models.TaskConfig,
+    endpoint: str,
     llm_request: models.ChatRequestModel,
     chat_responses: List[models.MinerChatResponse],
     index: int,
 ) -> float:
     validator_checking_response = await get_chat_data_validator_response(
-        task_config.endpoint, llm_request.model_dump()
+        endpoint, llm_request.model_dump()
     )
     token = chat_responses[index].text
     validator_log_probs_for_token = {
@@ -354,3 +357,41 @@ async def calculate_distance_for_token(
      #    f"\nMiner token: {chat_responses[index].text}: {chat_responses[index].logprob} \n Validator tokens: \n{formatted_validator_logging}\ndistance between exp of log probs: {distance}"
      #)
     return distance
+
+
+if __name__ == '__main__':
+    # filenames = glob.glob("/root/test/vision-workers/validator_orchestrator/app/checking/test_data/*.json")
+    with open("/root/test/vision-workers/validator_orchestrator/app/checking/test_data/0.json") as f:
+        data = json.load(f)
+
+    formatted_response = [{"text": j['decoded'], "logprob": j['logprob']} for i in data for j in i['logprobs']]
+    query_result = {"formatted_response": formatted_response, "axon_uid": 1, "response_time": 1.0, "error_message": "0", "failed_axon_uids": []}
+    query_result = models.QueryResult(**query_result)
+
+    with open('/root/test/vision-workers/validator_orchestrator/app/checking/test.txt', 'r') as file:
+        # Iterate over each line in the file
+        for line in file:
+            topic = line
+            break
+
+    synapse = {
+        "messages": [
+            {
+                "role": "user",
+                "content":  "Write a short paragraph to describe: " + topic.strip()
+            }
+        ],
+        "seed": 0,
+        "temperature": 0.1,
+        "max_tokens": 50,
+        "additionalProp1": {}
+    }
+
+    endpoint = "http://localhost:14625/generate_text"
+
+    @async_to_sync
+    async def print_data():
+        return await check_text_result(query_result, synapse, endpoint)
+    
+    a = print_data()
+    print(a)
