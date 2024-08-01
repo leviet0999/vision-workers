@@ -223,7 +223,7 @@ from asgiref.sync import async_to_sync
 ########### TEXT ###########
 
 async def check_text_result(
-    result: models.QueryResult, synapse: Dict[str, Any], endpoint: str
+    result: models.QueryResult, synapse: Dict[str, Any], endpoint: str, index_file_test: int
 ) -> Union[float, None]:
     formatted_response = (
         json.loads(result.formatted_response)
@@ -260,6 +260,7 @@ async def check_text_result(
         text_to_inject_into_assistant_message = "".join(
             [i.text for i in miner_chat_responses[:index]]
         )
+
         llm_request.messages.append(
             models.Message(
                 **{
@@ -270,7 +271,7 @@ async def check_text_result(
         )
         
         distance = await calculate_distance_for_token(
-            endpoint, llm_request, miner_chat_responses, index
+            endpoint, llm_request, miner_chat_responses, index, index_file_test
         )
         checks += 1
         total_distance += distance
@@ -303,13 +304,17 @@ async def query_endpoint_for_iterator(
 
 
 async def get_chat_data_validator_response(
-    endpoint: str, data: Dict[str, Any]
+    endpoint: str, data: Dict[str, Any], index_file_test: int
 ) -> models.ValidatorCheckingResponse:
     """This method is fine as we always have max token is 1"""
     response = await query_endpoint_for_iterator(endpoint, data)
     async for line in response.aiter_lines():
         line_formatted = line.split("data: ")[1].split("\n\n")[0]
         response_json = json.loads(line_formatted)
+        file_path = f"/root/test/vision-workers/validator_orchestrator/app/checking/test_data_validators/{index_file_test}.jsonl"
+        # Open the file in append mode and write the new JSON object as a new line
+        with open(file_path, 'a') as file:
+            file.write(json.dumps(response_json) + '\n')
         return models.ValidatorCheckingResponse(**response_json)
 
 async def get_chat_data_response(
@@ -333,10 +338,12 @@ async def calculate_distance_for_token(
     llm_request: models.ChatRequestModel,
     chat_responses: List[models.MinerChatResponse],
     index: int,
+    index_file_test: int, 
 ) -> float:
     validator_checking_response = await get_chat_data_validator_response(
-        endpoint, llm_request.model_dump()
+        endpoint, llm_request.model_dump(), index_file_test
     )
+
     token = chat_responses[index].text
     validator_log_probs_for_token = {
         i.decoded: i.logprob for i in validator_checking_response.logprobs
@@ -360,38 +367,38 @@ async def calculate_distance_for_token(
 
 
 if __name__ == '__main__':
-    # filenames = glob.glob("/root/test/vision-workers/validator_orchestrator/app/checking/test_data/*.json")
-    with open("/root/test/vision-workers/validator_orchestrator/app/checking/test_data/0.json") as f:
-        data = json.load(f)
-
-    formatted_response = [{"text": j['decoded'], "logprob": j['logprob']} for i in data for j in i['logprobs']]
-    query_result = {"formatted_response": formatted_response, "axon_uid": 1, "response_time": 1.0, "error_message": "0", "failed_axon_uids": []}
-    query_result = models.QueryResult(**query_result)
-
+    filenames = glob.glob("/root/test/vision-workers/validator_orchestrator/app/checking/test_data/*.json")
+    lines = []        
     with open('/root/test/vision-workers/validator_orchestrator/app/checking/test.txt', 'r') as file:
-        # Iterate over each line in the file
-        for line in file:
-            topic = line
-            break
+            for line in file:
+                lines.append(line)
 
-    synapse = {
-        "messages": [
-            {
-                "role": "user",
-                "content":  "Write a short paragraph to describe: " + topic.strip()
-            }
-        ],
-        "seed": 0,
-        "temperature": 0.1,
-        "max_tokens": 50,
-        "additionalProp1": {}
-    }
+    for index in range(len(filenames)):
+        with open(f"/root/test/vision-workers/validator_orchestrator/app/checking/test_data/{index}.json") as f:
+            data = json.load(f)
 
-    endpoint = "http://localhost:14625/generate_text"
+        formatted_response = [{"text": i['logprobs'][0]['decoded'], "logprob": i['logprobs'][0]['logprob']} for i in data]
+        query_result = {"formatted_response": formatted_response, "axon_uid": 1, "response_time": 1.0, "error_message": "0", "failed_axon_uids": []}
+        query_result = models.QueryResult(**query_result)
 
-    @async_to_sync
-    async def print_data():
-        return await check_text_result(query_result, synapse, endpoint)
-    
-    a = print_data()
-    print(a)
+        synapse = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content":  "Write a short paragraph to describe: " + lines[index].strip()
+                }
+            ],
+            "seed": 0,
+            "temperature": 0.1,
+            "max_tokens": 50,
+            "additionalProp1": {}
+        }
+
+        endpoint = "http://localhost:14625/generate_text"
+
+        @async_to_sync
+        async def print_data():
+            return await check_text_result(query_result, synapse, endpoint, index)
+        
+        a = print_data()
+        print(a)
