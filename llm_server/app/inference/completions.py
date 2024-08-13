@@ -28,23 +28,6 @@ def _join_sequential_messages(
         f"{current_content}\n{new_content}" if len(current_content) > 0 else new_content
     )
 
-async def stream_api_call(url, params):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=params) as response:
-            if response.status == 200:
-                async for chunk in response.content.iter_any():
-                    _token = chunk.decode()
-                    _token = _token.replace("data: ", "")
-                    token = {}
-                    if "[DONE]" not in _token:
-                        _token = json.loads(_token)['meta_info']['output_top_logprobs'][-1]
-                        token['text'] = _token[0][2]
-                        token['logprobs'] = [{"index": t[1], "logprob": t[0], "decoded": t[2]} for t in _token]
-                        yield token
-                    else:
-                        yield _token
-
-
 def fix_message_structure_for_prompt(
     tokenizer: Any, messages: List[Message]
 ) -> List[Message]:
@@ -254,7 +237,7 @@ async def complete_sglang(
     # )
     print("FORMATTED\n\n")
     print(formatted_prompt)
-    url = "http://127.0.0.1:16746/generate"
+    url = "http://127.0.0.1:16911/generate"
     params = {
         "text": formatted_prompt,
         "sampling_params": {
@@ -268,14 +251,21 @@ async def complete_sglang(
         "return_text_in_logprobs": True,
         "top_logprobs_num": number_of_logprobs
     }
-    stream = await stream_api_call(url, params)
+    print("PARAMS\n\n")
+    print(params)
 
-    async for request_output in stream:
-        try:
-            data = json.dumps(request_output)
-            yield f"data: {data}\n\n"
-        except:
-            continue
-
-    yield "data: [DONE]\n\n"
-
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=params) as response:
+            print("CHECK OK\n\n")
+            if response.status == 200:
+                async for chunk in response.content.iter_any():
+                    _token = chunk.decode()
+                    _token = _token.replace("data: ", "")
+                    token = {}
+                    if "[DONE]" not in _token:
+                        _token = json.loads(_token)['meta_info']['output_top_logprobs'][-1]
+                        token['text'] = _token[0][2]
+                        token['logprobs'] = [{"index": t[1], "logprob": t[0], "decoded": t[2]} for t in _token]
+                        yield f"data: {token}\n\n"
+                    else:
+                        yield "data: [DONE]\n\n"

@@ -112,9 +112,7 @@ class EngineState:
         async def generate_text(request: RequestInfo):
             try:
                 logging.info(f"Received request: {request.json()}")
-                print("hehe")
                 llm_engine = engine_holder['engine']
-                print("Con cac")
                 async def stream_response():
                     # async for chunk in completions.complete_vllm(llm_engine, request):
                     #     yield chunk

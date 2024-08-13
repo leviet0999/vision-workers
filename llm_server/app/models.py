@@ -80,7 +80,7 @@ class RequestInfo(BaseModel):
 class LLMEngine(BaseModel):
     model_name: str
     tokenizer_name: str
-    model: AsyncLLMEngine
+    model: Optional[Any] = None
     tokenizer: Any
     completion_method: Callable[[LLMEngine, RequestInfo], Any]
     streamer: Optional[TextIteratorStreamer] = None
