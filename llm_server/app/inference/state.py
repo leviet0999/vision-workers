@@ -22,6 +22,10 @@ from typing import Optional
 import httpx
 import uvicorn
 import errno
+import aiohttp
+import asyncio
+import json
+
 
 class CancelledErrorFilter:
     def __call__(self, record):
@@ -108,9 +112,13 @@ class EngineState:
         async def generate_text(request: RequestInfo):
             try:
                 logging.info(f"Received request: {request.json()}")
+                print("hehe")
                 llm_engine = engine_holder['engine']
+                print("Con cac")
                 async def stream_response():
-                    async for chunk in completions.complete_vllm(llm_engine, request):
+                    # async for chunk in completions.complete_vllm(llm_engine, request):
+                    #     yield chunk
+                    async for chunk in completions.complete_sglang(llm_engine, request):
                         yield chunk
 
                 return StreamingResponse(stream_response(), media_type="application/json")
@@ -145,7 +153,7 @@ class EngineState:
 
     async def forward_request(self, request_info: models.RequestInfo):
         async with httpx.AsyncClient() as client:
-            async with client.stream("POST", "http://localhost:6910/generate", json=request_info.dict()) as response:
+            async with client.stream("POST", "http://0.0.0.0:6910/generate", json=request_info.dict()) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if line:

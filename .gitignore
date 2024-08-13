@@ -183,6 +183,8 @@ celerybeat.pid
 .venv
 env/
 venv/
+main_env/
+llm/
 ENV/
 env.bak/
 venv.bak/
@@ -228,3 +230,4 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+

@@ -8,6 +8,9 @@ from app.models import Message, Role
 import json
 from app.logging import logging
 from typing import Any
+import aiohttp
+import asyncio
+import json
 
 SYSTEM_PROMPT_PREFIX = "Instructions to follow for all following messages: "
 
@@ -24,6 +27,22 @@ def _join_sequential_messages(
     return (
         f"{current_content}\n{new_content}" if len(current_content) > 0 else new_content
     )
+
+async def stream_api_call(url, params):
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=params) as response:
+            if response.status == 200:
+                async for chunk in response.content.iter_any():
+                    _token = chunk.decode()
+                    _token = _token.replace("data: ", "")
+                    token = {}
+                    if "[DONE]" not in _token:
+                        _token = json.loads(_token)['meta_info']['output_top_logprobs'][-1]
+                        token['text'] = _token[0][2]
+                        token['logprobs'] = [{"index": t[1], "logprob": t[0], "decoded": t[2]} for t in _token]
+                        yield token
+                    else:
+                        yield _token
 
 
 def fix_message_structure_for_prompt(
@@ -185,3 +204,78 @@ async def complete_vllm(
         cursor = len(text)
         logprobs_cursor = len(log_probs)
     yield "data: [DONE]\n\n"
+
+async def complete_sglang(
+    engine: models.LLMEngine, request_info: models.RequestInfo
+) -> AsyncGenerator[str, None]:
+    import uuid
+
+    temperature = request_info.temperature
+
+    seed = request_info.seed
+    number_of_logprobs = request_info.number_of_logprobs
+    starting_assistant_message = request_info.starting_assistant_message
+    top_k = 5  # 5 is the maximum that vllm allows for logprobs, so we must use this
+    top_p = request_info.top_p
+
+    # Our use cases have top p 0 or 1
+    if not top_p != 0:
+        top_p = 1
+
+    messages_dict = [
+        message.model_dump()
+        for message in fix_message_structure_for_prompt(
+            engine.tokenizer, request_info.messages
+        )
+    ]
+    # TODO: Review why system prompt doesn't work :(
+    formatted_prompt = engine.tokenizer.apply_chat_template(
+        conversation=messages_dict,
+        tokenize=False,
+        add_generation_prompt=starting_assistant_message)
+    if 'llama-3' in engine.model_name and not starting_assistant_message:
+        # we want to revmoe anything from the last instance of <|eot_id|> onwards
+        formatted_prompt = formatted_prompt[:formatted_prompt.rfind("<|eot_id|>")]
+
+    end_of_string_token = engine.tokenizer.eos_token
+    if not starting_assistant_message and formatted_prompt.rstrip().endswith(
+        end_of_string_token
+    ):
+        formatted_prompt = formatted_prompt.rstrip()[: -len(end_of_string_token)]
+
+    set_random_seed(seed)
+    # sampling_params = SamplingParams(
+    #     max_tokens=request_info.max_tokens,
+    #     temperature=temperature,
+    #     top_p=top_p,
+    #     seed=seed,
+    #     logprobs=number_of_logprobs,
+    #     top_k=top_k,
+    # )
+    print("FORMATTED\n\n")
+    print(formatted_prompt)
+    url = "http://127.0.0.1:16746/generate"
+    params = {
+        "text": formatted_prompt,
+        "sampling_params": {
+        "max_new_tokens": request_info.max_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k
+        },
+        "stream": True,
+        "return_logprob": True,
+        "return_text_in_logprobs": True,
+        "top_logprobs_num": number_of_logprobs
+    }
+    stream = await stream_api_call(url, params)
+
+    async for request_output in stream:
+        try:
+            data = json.dumps(request_output)
+            yield f"data: {data}\n\n"
+        except:
+            continue
+
+    yield "data: [DONE]\n\n"
+
